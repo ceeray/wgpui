@@ -4588,8 +4588,10 @@ impl Window {
     /// The captured frame is the one the compositor presents — the window's chrome and any
     /// hosted GPU surface content composited together — read back once after that frame is
     /// rendered. Nothing is copied while no capture is pending and no render loop is started:
-    /// the request asks for one redraw, and the frame that redraw produces is the frame
-    /// captured.
+    /// the request marks the window as needing one presentation and asks for one redraw, and
+    /// the frame that redraw presents is the frame captured. A window with nothing to re-lay
+    /// out still presents its current scene for that redraw, so an idle window is captured
+    /// rather than left waiting for its next input.
     ///
     /// At most one capture can be pending. A request made before the previous one has been
     /// served supersedes it, cancelling the earlier receiver rather than answering it with a
@@ -4602,7 +4604,12 @@ impl Window {
     pub fn request_frame_capture(
         &self,
     ) -> Option<oneshot::Receiver<Result<FrameCapture, FrameCaptureError>>> {
-        self.platform_window.request_frame_capture()
+        let receiver = self.platform_window.request_frame_capture()?;
+        // The redraw the platform requests only reaches the compositor if this frame presents:
+        // a clean window that has seen no recent input otherwise skips both drawing and
+        // presenting, and the request would never be served.
+        self.needs_present.set(true);
+        Some(receiver)
     }
 
     /// Perform titlebar double-click action.
